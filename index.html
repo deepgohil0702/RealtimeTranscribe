@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VoiceLM</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=IBM+Plex+Mono:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#080808;--panel:#101010;--border:#1e1e1e;
+    --accent:#c8ff00;--accent2:#ff6b35;--text:#f0f0f0;--muted:#555;
+    --good:#00e5a0;--warn:#ffaa00;--bad:#ff4444;
+  }
+  body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 24px;}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:48px 48px;opacity:.3;pointer-events:none;z-index:0;}
+  .container{position:relative;z-index:1;width:100%;max-width:820px;display:flex;flex-direction:column;gap:22px;}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:18px;}
+  .logo-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:3px;text-transform:uppercase;}
+  .logo h1{font-size:38px;font-weight:800;letter-spacing:-2px;line-height:1;}
+  .logo h1 span{color:var(--accent);}
+  .model-badge{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);border:1px solid var(--border);padding:6px 12px;border-radius:4px;}
+
+  /* Stats row */
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;position:relative;overflow:hidden;}
+  .stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--border);transition:background .4s;}
+  .stat-card.good::after{background:var(--good);}
+  .stat-card.warn::after{background:var(--warn);}
+  .stat-card.bad::after{background:var(--bad);}
+  .stat-label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+  .stat-val{font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--text);transition:color .3s;}
+  .stat-val.good{color:var(--good);}
+  .stat-val.warn{color:var(--warn);}
+  .stat-val.bad{color:var(--bad);}
+  .stat-unit{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--muted);}
+
+  /* Viz */
+  .viz-wrap{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px 24px;display:flex;flex-direction:column;align-items:center;gap:18px;}
+  #visualizer{width:100%;height:64px;display:flex;align-items:center;justify-content:center;gap:3px;}
+  .bar{width:4px;border-radius:2px;background:var(--accent);min-height:4px;transition:height .08s ease;}
+  .bar.inactive{background:var(--border);height:4px!important;}
+  .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap;width:100%;}
+  .btn{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;border:none;cursor:pointer;padding:12px 28px;border-radius:6px;transition:all .15s;}
+  .btn-start{background:var(--accent);color:#000;}
+  .btn-start:hover{background:#d9ff1a;}
+  .btn-start:disabled{opacity:.3;cursor:not-allowed;}
+  .btn-stop{background:transparent;color:var(--accent2);border:1px solid var(--accent2);}
+  .btn-stop:hover{background:var(--accent2);color:#fff;}
+  .btn-stop:disabled{opacity:.3;cursor:not-allowed;}
+  .btn-clear{background:transparent;color:var(--muted);border:1px solid var(--border);}
+  .btn-clear:hover{color:var(--text);}
+
+  /* Status */
+  #status{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:1px;display:flex;align-items:center;gap:8px;margin-left:auto;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+  #status.live .dot{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 1.2s infinite;}
+  #status.processing .dot{background:var(--warn);box-shadow:0 0 8px var(--warn);animation:pulse .6s infinite;}
+  #status.done .dot{background:var(--good);}
+  #status.error .dot{background:var(--bad);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* Queue indicator */
+  .queue-bar-wrap{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .queue-bar{height:100%;background:var(--warn);border-radius:2px;transition:width .5s ease;width:0%;}
+
+  /* Transcript */
+  .transcript-wrap{background:#0d0d0d;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .transcript-header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .transcript-header span{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;}
+  #transcript{padding:20px 24px;min-height:220px;max-height:380px;overflow-y:auto;font-family:'IBM Plex Mono',monospace;font-size:14px;font-style:italic;line-height:1.9;color:var(--text);scroll-behavior:smooth;}
+  #transcript:empty::before{content:'Speak into your mic — full transcript appears here...';color:var(--muted);font-style:italic;}
+  .chunk.new{color:var(--accent);animation:fadein 1.5s forwards;}
+  @keyframes fadein{0%{color:var(--accent)}100%{color:var(--text)}}
+  .footer-bar{display:flex;justify-content:flex-end;}
+  .btn-copy{font-family:'IBM Plex Mono',monospace;font-size:11px;background:transparent;color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:4px;cursor:pointer;letter-spacing:1px;transition:all .15s;}
+  .btn-copy:hover{color:var(--text);}
+  #transcript::-webkit-scrollbar{width:4px;}
+  #transcript::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">
+      <div class="logo-tag">faster-whisper · INT8 · No API</div>
+      <h1>Voice<span>LM</span></h1>
+    </div>
+    <div class="model-badge">MODEL // TURBO</div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-card" id="sc-whisper">
+      <div class="stat-label">Whisper</div>
+      <div class="stat-val" id="sv-whisper">—</div>
+      <div class="stat-unit">ms</div>
+    </div>
+    <div class="stat-card" id="sc-rtf">
+      <div class="stat-label">RTF</div>
+      <div class="stat-val" id="sv-rtf">—</div>
+      <div class="stat-unit">ratio (lower=faster)</div>
+    </div>
+    <div class="stat-card" id="sc-queue">
+      <div class="stat-label">Queue</div>
+      <div class="stat-val" id="sv-queue">0</div>
+      <div class="stat-unit">chunks pending</div>
+    </div>
+    <div class="stat-card" id="sc-words">
+      <div class="stat-label">Words</div>
+      <div class="stat-val" id="sv-words">0</div>
+      <div class="stat-unit">transcribed</div>
+    </div>
+  </div>
+
+  <!-- Queue drain progress bar -->
+  <div class="queue-bar-wrap" id="queue-bar-wrap" style="display:none">
+    <div class="queue-bar" id="queue-bar"></div>
+  </div>
+
+  <!-- Mic -->
+  <div class="viz-wrap">
+    <div id="visualizer"></div>
+    <div class="controls">
+      <button class="btn btn-start" id="startBtn" onclick="startRecording()">▶ Start</button>
+      <button class="btn btn-stop"  id="stopBtn"  onclick="stopRecording()" disabled>■ Stop</button>
+      <button class="btn btn-clear" onclick="clearTranscript()">Clear</button>
+      <div id="status"><span class="dot"></span><span id="statusText">IDLE</span></div>
+    </div>
+  </div>
+
+  <!-- Transcript -->
+  <div class="transcript-wrap">
+    <div class="transcript-header">
+      <span>Full Transcript</span>
+      <span id="word-count">0 words</span>
+    </div>
+    <div id="transcript"></div>
+  </div>
+
+  <div class="footer-bar">
+    <button class="btn-copy" onclick="copyTranscript()">⎘ Copy</button>
+  </div>
+</div>
+
+<script>
+  const SAMPLE_RATE = 16000;
+  const CHUNK_MS    = 3000;
+
+  let ws=null, audioCtx=null, mediaStream=null;
+  let processor=null, analyser=null;
+  let chunkBuffer=[], chunkTimer=null, animFrame=null;
+  let isRecording=false;
+  let maxQueueSeen = 1;
+
+  // ── Bars ──────────────────────────────────────────────────────────────
+  const viz = document.getElementById("visualizer");
+  const barEls = [];
+  for (let i=0;i<52;i++){
+    const b=document.createElement("div");
+    b.className="bar inactive";
+    viz.appendChild(b);
+    barEls.push(b);
+  }
+  function animBars(){
+    if(!analyser)return;
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    const step=Math.floor(data.length/barEls.length);
+    barEls.forEach((b,i)=>{
+      const v=data[i*step]||0;
+      b.style.height=(4+(v/255)*68)+"px";
+      b.style.opacity=0.4+(v/255)*0.6;
+    });
+    animFrame=requestAnimationFrame(animBars);
+  }
+  function stopBars(){
+    if(animFrame)cancelAnimationFrame(animFrame);
+    barEls.forEach(b=>{b.className="bar inactive";b.style.height="4px";});
+  }
+
+  // ── Status ────────────────────────────────────────────────────────────
+  function setStatus(msg,state){
+    document.getElementById("statusText").textContent=msg;
+    document.getElementById("status").className=state||"";
+  }
+
+  // ── Stats cards ───────────────────────────────────────────────────────
+  function setStat(id, val, good, warn){
+    const cls = val<=good?"good":val<=warn?"warn":"bad";
+    document.getElementById("sv-"+id).textContent=val;
+    document.getElementById("sv-"+id).className="stat-val "+cls;
+    document.getElementById("sc-"+id).className="stat-card "+cls;
+  }
+  function setQueueStat(q){
+    document.getElementById("sv-queue").textContent=q;
+    const cls=q===0?"good":q<=3?"warn":"bad";
+    document.getElementById("sv-queue").className="stat-val "+cls;
+    document.getElementById("sc-queue").className="stat-card "+cls;
+
+    // Progress bar (counts down when draining)
+    if(q>0){
+      if(q>maxQueueSeen)maxQueueSeen=q;
+      document.getElementById("queue-bar-wrap").style.display="block";
+      const pct=((maxQueueSeen-q)/maxQueueSeen)*100;
+      document.getElementById("queue-bar").style.width=pct+"%";
+    } else {
+      document.getElementById("queue-bar-wrap").style.display="none";
+      maxQueueSeen=1;
+    }
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────
+  function connect(){
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws=new WebSocket(proto + "//" + location.host + "/ws");
+    ws.binaryType="arraybuffer";
+    ws.onopen=()=>setStatus("CONNECTED","");
+    ws.onclose=()=>{
+      if(isRecording){setStatus("RECONNECTING...","processing");setTimeout(connect,1000);}
+      else setStatus("DISCONNECTED","error");
+    };
+    ws.onerror=()=>{};
+    ws.onmessage=(e)=>{
+      const data=JSON.parse(e.data);
+      if(data.type==="ping"){
+        setQueueStat(data.queue||0);
+        if(!isRecording && data.queue>0) setStatus(`PROCESSING QUEUE (${data.queue})...`,"processing");
+        return;
+      }
+      if(data.type==="transcript" && data.text){
+        appendTranscript(data.text);
+        setStat("whisper", data.whisper_ms, 3000, 8000);
+        setStat("rtf",     data.rtf,        1,    2);
+      }
+      if(data.type==="done"){
+        setStatus("✓ COMPLETE","done");
+        setQueueStat(0);
+        stopBars();
+      }
+    };
+  }
+
+  // ── Recording ─────────────────────────────────────────────────────────
+  async function startRecording(){
+    connect();
+    await new Promise(r=>setTimeout(r,400));
+    try{
+      mediaStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+      audioCtx=new AudioContext({sampleRate:SAMPLE_RATE});
+      const source=audioCtx.createMediaStreamSource(mediaStream);
+      analyser=audioCtx.createAnalyser();
+      analyser.fftSize=256;
+      source.connect(analyser);
+      processor=audioCtx.createScriptProcessor(4096,1,1);
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      processor.onaudioprocess=(e)=>{
+        if(isRecording)chunkBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      chunkTimer=setInterval(sendChunk,CHUNK_MS);
+      isRecording=true;
+      maxQueueSeen=1;
+      barEls.forEach(b=>b.classList.remove("inactive"));
+      animBars();
+      setStatus("LIVE","live");
+      document.getElementById("startBtn").disabled=true;
+      document.getElementById("stopBtn").disabled=false;
+    }catch(err){
+      setStatus("MIC ERROR: "+err.message,"error");
+    }
+  }
+
+  function sendChunk(){
+    if(!ws||ws.readyState!==WebSocket.OPEN||chunkBuffer.length===0)return;
+    const total=chunkBuffer.reduce((s,a)=>s+a.length,0);
+    const merged=new Float32Array(total);
+    let off=0;
+    for(const c of chunkBuffer){merged.set(c,off);off+=c.length;}
+    chunkBuffer=[];
+    ws.send(merged.buffer);
+  }
+
+  function stopRecording(){
+    isRecording=false;
+    clearInterval(chunkTimer);
+    sendChunk(); // flush last audio
+
+    if(processor){processor.disconnect();processor=null;}
+    if(analyser){analyser.disconnect();analyser=null;}
+    if(audioCtx){audioCtx.close();audioCtx=null;}
+    if(mediaStream){mediaStream.getTracks().forEach(t=>t.stop());mediaStream=null;}
+
+    // Tell server recording stopped so it can notify us when queue drains
+    if(ws&&ws.readyState===WebSocket.OPEN){
+      ws.send(new TextEncoder().encode("STOP"));
+    }
+
+    stopBars();
+    setStatus("PROCESSING QUEUE...","processing");
+    document.getElementById("startBtn").disabled=false;
+    document.getElementById("stopBtn").disabled=true;
+    chunkBuffer=[];
+  }
+
+  // ── Transcript ────────────────────────────────────────────────────────
+  function appendTranscript(text){
+    if(!text)return;
+    const el=document.getElementById("transcript");
+    const span=document.createElement("span");
+    span.className="chunk new";
+    span.textContent=(el.textContent.trim()?" ":"")+text;
+    el.appendChild(span);
+    el.scrollTop=el.scrollHeight;
+    updateWordCount();
+  }
+  function clearTranscript(){document.getElementById("transcript").innerHTML="";updateWordCount();}
+  function updateWordCount(){
+    const t=document.getElementById("transcript").textContent.trim();
+    const c=t?t.split(/\s+/).length:0;
+    document.getElementById("word-count").textContent=c+" words";
+    document.getElementById("sv-words").textContent=c;
+  }
+  function copyTranscript(){
+    navigator.clipboard.writeText(document.getElementById("transcript").textContent.trim()).then(()=>{
+      const b=document.querySelector(".btn-copy");
+      b.textContent="✓ Copied!";
+      setTimeout(()=>b.textContent="⎘ Copy",2000);
+    });
+  }
+
+  connect();
+</script>
+</body>
+</html>
